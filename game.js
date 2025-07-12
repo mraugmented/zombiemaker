@@ -152,6 +152,34 @@ function movePlayer() {
     }
 }
 
+function moveZombies() {
+    for (let i = 1; i < zombies.length; i++) {
+        const z = zombies[i];
+        let closest = null;
+        let closestDist = Infinity;
+        for (const h of humans) {
+            const d = Math.hypot(z.x - h.x, z.y - h.y);
+            if (d < closestDist) {
+                closestDist = d;
+                closest = h;
+            }
+        }
+        if (closest) {
+            const dx = Math.sign(closest.x - z.x) * HUMAN_SPEED;
+            const dy = Math.sign(closest.y - z.y) * HUMAN_SPEED;
+            const prev = { x: z.x, y: z.y };
+            z.x += dx;
+            z.y += dy;
+            z.x = Math.max(0, Math.min(z.x, canvas.width - TILE));
+            z.y = Math.max(0, Math.min(z.y, canvas.height - TILE));
+            if (isInsideWall(z)) {
+                z.x = prev.x;
+                z.y = prev.y;
+            }
+        }
+    }
+}
+
 function moveHumans() {
     for (const h of humans) {
         const target = zombies[0];
@@ -201,9 +229,26 @@ function checkCollisions() {
         if (Math.abs(h.x - player.x) < TILE && Math.abs(h.y - player.y) < TILE) {
             humans.splice(i, 1);
             zombies.push(h);
+            h.color = 'lime';
             score++;
             playBeep();
             updateHud();
+        }
+    }
+
+    // zombies vs humans
+    for (let j = 0; j < zombies.length; j++) {
+        const z = zombies[j];
+        for (let i = humans.length - 1; i >= 0; i--) {
+            const h = humans[i];
+            if (Math.abs(h.x - z.x) < TILE && Math.abs(h.y - z.y) < TILE) {
+                humans.splice(i, 1);
+                zombies.push(h);
+                h.color = 'lime';
+                score++;
+                playBeep();
+                updateHud();
+            }
         }
     }
 
@@ -254,26 +299,72 @@ function checkCollisions() {
         playBeep(660);
         startLevel();
     }
+    if (invincibleTimer > 0) invincibleTimer--;
 }
 
-function drawEntity(ent) {
+function drawCharacter(ent, type) {
     ctx.fillStyle = ent.color;
-    ctx.fillRect(ent.x, ent.y, TILE, TILE);
+    // Head
+    ctx.beginPath();
+    ctx.arc(ent.x + TILE / 2, ent.y + TILE / 4, TILE / 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Body
+    ctx.fillRect(ent.x + TILE / 4, ent.y + TILE / 2, TILE / 2, TILE / 2);
+    if (type === 'soldier') {
+        // Gun
+        ctx.fillStyle = 'black';
+        ctx.fillRect(ent.x + TILE / 2, ent.y + TILE / 2, TILE / 2, TILE / 8);
+    }
+    // For zombie, add eyes
+    if (type === 'zombie') {
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(ent.x + TILE / 3, ent.y + TILE / 5, TILE / 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ent.x + 2 * TILE / 3, ent.y + TILE / 5, TILE / 12, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawPowerup(ent) {
+    ctx.fillStyle = ent.color;
+    if (ent.type === 'speed') {
+        // Triangle for speed
+        ctx.beginPath();
+        ctx.moveTo(ent.x + TILE / 2, ent.y);
+        ctx.lineTo(ent.x + TILE, ent.y + TILE);
+        ctx.lineTo(ent.x, ent.y + TILE);
+        ctx.closePath();
+        ctx.fill();
+    } else if (ent.type === 'invincible') {
+        // Circle for shield
+        ctx.beginPath();
+        ctx.arc(ent.x + TILE / 2, ent.y + TILE / 2, TILE / 2, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (ent.type === 'freeze') {
+        // Square with cross for snowflake
+        ctx.fillRect(ent.x + TILE / 4, ent.y + TILE / 4, TILE / 2, TILE / 2);
+        ctx.fillStyle = 'blue';
+        ctx.fillRect(ent.x + TILE / 3, ent.y + TILE / 4, TILE / 3, TILE / 2);
+        ctx.fillRect(ent.x + TILE / 4, ent.y + TILE / 3, TILE / 2, TILE / 3);
+    }
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#333';
     for (const w of walls) ctx.fillRect(w.x, w.y, w.width, w.height);
-    for (const h of humans) drawEntity(h);
-    for (const s of soldiers) drawEntity(s);
-    for (const p of powerups) drawEntity(p);
-    for (const z of zombies) drawEntity(z);
+    for (const h of humans) drawCharacter(h, 'human');
+    for (const s of soldiers) drawCharacter(s, 'soldier');
+    for (const p of powerups) drawPowerup(p);
+    for (const z of zombies) drawCharacter(z, 'zombie');
 }
 
 function gameLoop() {
     if (!gameRunning) return;
     movePlayer();
+    moveZombies();
     moveHumans();
     moveSoldiers();
     checkCollisions();
