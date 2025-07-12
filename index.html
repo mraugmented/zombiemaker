@@ -22,12 +22,28 @@
         </div>
         <div id="start-screen" class="overlay">
             <h1>Zombie Maker</h1>
+            <div id="difficulty-selection">
+                <h3>Select Difficulty</h3>
+                <div id="difficulty-buttons">
+                    <button id="easy-btn" class="difficulty-btn">Easy</button>
+                    <button id="medium-btn" class="difficulty-btn selected">Medium</button>
+                    <button id="hard-btn" class="difficulty-btn">Hard</button>
+                </div>
+            </div>
+            <div id="achievements-display">
+                <h3>Achievements</h3>
+                <div id="achievement-list"></div>
+            </div>
             <button id="start-btn">Start</button>
         </div>
         <div id="game-over" class="overlay hidden">
             <h1>Game Over</h1>
             <p id="final-score"></p>
             <p id="high-score"></p>
+            <div id="level-stats">
+                <p>Level Reached: <span id="level-reached"></span></p>
+                <p>Total Infections: <span id="total-infections"></span></p>
+            </div>
             <button id="go-restart-btn">Restart</button>
         </div>
     </div>

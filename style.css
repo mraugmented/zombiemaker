@@ -96,3 +96,76 @@ body {
     background-color: #0069d9;
     box-shadow: 0 4px 8px rgba(0,0,0,0.5);
 }
+
+#achievements-display {
+    margin: 20px 0;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    max-width: 400px;
+}
+
+#achievements-display h3 {
+    margin-bottom: 10px;
+    color: #ffc107;
+}
+
+#achievement-list {
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.achievement {
+    color: #28a745;
+    margin: 5px 0;
+}
+
+.achievement.locked {
+    color: #666;
+}
+
+#level-stats {
+    margin: 15px 0;
+    font-size: 14px;
+}
+
+#level-stats p {
+    margin: 5px 0;
+}
+
+#difficulty-selection {
+    margin: 20px 0;
+}
+
+#difficulty-selection h3 {
+    margin-bottom: 10px;
+    color: #ffc107;
+}
+
+#difficulty-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.difficulty-btn {
+    padding: 8px 16px;
+    background-color: #444;
+    border: 2px solid #666;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 10px;
+    transition: all 0.2s;
+}
+
+.difficulty-btn:hover {
+    background-color: #555;
+    border-color: #777;
+}
+
+.difficulty-btn.selected {
+    background-color: #007bff;
+    border-color: #0056b3;
+}

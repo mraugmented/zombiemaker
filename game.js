@@ -2,13 +2,16 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 
 const TILE = 20; // size for all entities
-const BASE_SPEED = 2; // base player speed
+const BASE_SPEED = 3; // base player speed
 const HUMAN_SPEED = 1;
 const SOLDIER_SPEED = 1.5;
 const SPEED_BOOST_DURATION = 300; // frames
 const SPEED_BOOST_MULT = 2;
 const INVINCIBLE_DURATION = 300;
 const FREEZE_DURATION = 300;
+const RAGE_DURATION = 300;
+const RAGE_MULT = 2;
+const EXPLOSION_RADIUS = 100; // New powerup effect
 
 let highscore = Number(localStorage.getItem('highscore') || 0);
 let score = 0;
@@ -16,6 +19,7 @@ let gameRunning = false;
 
 let invincibleTimer = 0;
 let freezeTimer = 0;
+let rageTimer = 0;
 
 let walls = [];
 
@@ -26,6 +30,125 @@ let soldiers = [];
 let powerups = [];
 let level = 1;
 let speedBoostTimer = 0;
+let bosses = [];
+
+let achievements = {
+    totalInfections: 0,
+    levelsCompleted: 0,
+    bossesKilled: 0,
+    powerupsCollected: 0,
+    highestLevel: 0
+};
+
+// Load achievements from localStorage
+function loadAchievements() {
+    const saved = localStorage.getItem('achievements');
+    if (saved) {
+        achievements = { ...achievements, ...JSON.parse(saved) };
+    }
+}
+
+function saveAchievements() {
+    localStorage.setItem('achievements', JSON.stringify(achievements));
+}
+
+function checkAchievements() {
+    const messages = [];
+    
+    if (achievements.totalInfections >= 100 && !achievements.infectionMaster) {
+        achievements.infectionMaster = true;
+        messages.push('Achievement: Infection Master!');
+    }
+    
+    if (achievements.levelsCompleted >= 10 && !achievements.survivor) {
+        achievements.survivor = true;
+        messages.push('Achievement: Survivor!');
+    }
+    
+    if (achievements.bossesKilled >= 5 && !achievements.bossSlayer) {
+        achievements.bossSlayer = true;
+        messages.push('Achievement: Boss Slayer!');
+    }
+    
+    if (messages.length > 0) {
+        saveAchievements();
+        // Show achievement notification
+        console.log(messages.join('\n'));
+    }
+}
+
+// Initialize achievements on load
+loadAchievements();
+
+let audioContext;
+let backgroundMusic;
+let musicPlaying = false;
+
+function initAudio() {
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        createBackgroundMusic();
+    } catch (e) {
+        console.log('Audio not supported');
+    }
+}
+
+function createBackgroundMusic() {
+    if (!audioContext) return;
+    
+    // Create a simple looping background tone
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(110, audioContext.currentTime); // Low A
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    backgroundMusic = { oscillator, gainNode };
+}
+
+function startBackgroundMusic() {
+    if (!musicPlaying && backgroundMusic) {
+        backgroundMusic.oscillator.start();
+        musicPlaying = true;
+    }
+}
+
+function stopBackgroundMusic() {
+    if (musicPlaying && backgroundMusic) {
+        backgroundMusic.oscillator.stop();
+        musicPlaying = false;
+        createBackgroundMusic(); // Recreate for next time
+    }
+}
+
+function playSound(freq = 440, dur = 0.1, type = 'sine') {
+    if (!audioContext) return;
+    
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + dur);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + dur);
+}
+
+// Initialize audio on first user interaction
+document.addEventListener('click', () => {
+    if (!audioContext) {
+        initAudio();
+    }
+}, { once: true });
 
 function randomPos() {
     let pos;
@@ -63,14 +186,28 @@ function spawnSoldiers(count) {
 }
 
 function spawnPowerups(count) {
-    const types = ['speed', 'invincible', 'freeze'];
+    const types = ['speed', 'invincible', 'freeze', 'multiply', 'rage', 'explosion'];
     for (let i = 0; i < count; i++) {
         const type = types[Math.floor(Math.random() * types.length)];
         let color = 'yellow';
         if (type === 'invincible') color = 'purple';
         if (type === 'freeze') color = 'white';
+        if (type === 'multiply') color = 'orange';
+        if (type === 'rage') color = 'red';
+        if (type === 'explosion') color = 'green';
         powerups.push({ ...randomPos(), color, type });
     }
+}
+
+function spawnBoss() {
+    const boss = {
+        ...randomPos(),
+        color: 'darkred',
+        health: 3 + Math.floor(level / 5),
+        maxHealth: 3 + Math.floor(level / 5),
+        speed: SOLDIER_SPEED * 1.5
+    };
+    bosses.push(boss);
 }
 
 function playBeep(freq = 440, dur = 0.1) {
@@ -87,11 +224,13 @@ function playBeep(freq = 440, dur = 0.1) {
 
 function createMaze() {
     walls = [];
-    for (let x = 100; x <= 600; x += 200) {
-        walls.push({ x, y: 100, width: 20, height: 400 });
-    }
-    for (let y = 100; y <= 400; y += 200) {
-        walls.push({ x: 100, y, width: 600, height: 20 });
+    const wallCount = 4 + level; // More walls per level
+    for (let i = 0; i < wallCount; i++) {
+        const x = Math.floor(Math.random() * (canvas.width / 100)) * 100;
+        const y = Math.floor(Math.random() * (canvas.height / 100)) * 100;
+        const width = 20 + Math.random() * 80;
+        const height = 20 + Math.random() * 80;
+        walls.push({ x, y, width, height });
     }
 }
 
@@ -102,21 +241,42 @@ function updateHud() {
     if (speedBoostTimer > 0) parts.push('Speed');
     if (invincibleTimer > 0) parts.push('Invincible');
     if (freezeTimer > 0) parts.push('Freeze');
+    if (rageTimer > 0) parts.push('Rage');
     document.getElementById('powerup-info').textContent = parts.join(' ');
     document.getElementById('score-info').textContent = `Score: ${score}`;
     document.getElementById('highscore-info').textContent = `Highscore: ${highscore}`;
 }
 
+let difficulty = 'medium';
+let difficultyMultipliers = {
+    easy: { humanCount: 0.7, soldierCount: 0.5, zombieSpeed: 1.2, playerSpeed: 1.1 },
+    medium: { humanCount: 1.0, soldierCount: 1.0, zombieSpeed: 1.0, playerSpeed: 1.0 },
+    hard: { humanCount: 1.5, soldierCount: 1.5, zombieSpeed: 0.8, playerSpeed: 0.9 }
+};
+
+// Difficulty selection handlers
+document.getElementById('easy-btn').addEventListener('click', () => selectDifficulty('easy'));
+document.getElementById('medium-btn').addEventListener('click', () => selectDifficulty('medium'));
+document.getElementById('hard-btn').addEventListener('click', () => selectDifficulty('hard'));
+
+function selectDifficulty(newDifficulty) {
+    difficulty = newDifficulty;
+    document.querySelectorAll('.difficulty-btn').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById(`${newDifficulty}-btn`).classList.add('selected');
+}
+
 function startLevel() {
     createMaze();
-    player = { ...randomPos(), color: 'lime', speed: BASE_SPEED };
+    player = { ...randomPos(), color: 'lime', speed: BASE_SPEED * difficultyMultipliers[difficulty].playerSpeed };
     zombies = [player];
     humans = [];
     soldiers = [];
+    bosses = [];
     powerups = [];
-    spawnHumans(5 + level * 5);
-    if (level > 1) spawnSoldiers(level - 1);
-    spawnPowerups(2);
+    spawnHumans(Math.floor((5 + level * 5) * difficultyMultipliers[difficulty].humanCount));
+    if (level > 1) spawnSoldiers(Math.floor((level - 1) * difficultyMultipliers[difficulty].soldierCount));
+    if (level % 5 === 0) spawnBoss();
+    spawnPowerups(2 + Math.floor(level / 2));
     updateHud();
 }
 
@@ -126,6 +286,7 @@ function resetGame() {
     speedBoostTimer = 0;
     invincibleTimer = 0;
     freezeTimer = 0;
+    rageTimer = 0;
     startLevel();
 }
 
@@ -138,6 +299,10 @@ function movePlayer() {
     if (speedBoostTimer > 0) {
         moveSpeed *= SPEED_BOOST_MULT;
         speedBoostTimer--;
+    }
+    if (rageTimer > 0) {
+        moveSpeed *= RAGE_MULT;
+        rageTimer--;
     }
     const prev = { x: player.x, y: player.y };
     if (keys['ArrowUp'] || keys['w']) player.y -= moveSpeed;
@@ -165,8 +330,9 @@ function moveZombies() {
             }
         }
         if (closest) {
-            const dx = Math.sign(closest.x - z.x) * HUMAN_SPEED;
-            const dy = Math.sign(closest.y - z.y) * HUMAN_SPEED;
+            const zombieSpeed = (HUMAN_SPEED + (level * 0.2)) * difficultyMultipliers[difficulty].zombieSpeed;
+            const dx = Math.sign(closest.x - z.x) * zombieSpeed;
+            const dy = Math.sign(closest.y - z.y) * zombieSpeed;
             const prev = { x: z.x, y: z.y };
             z.x += dx;
             z.y += dy;
@@ -222,6 +388,26 @@ function moveSoldiers() {
     }
 }
 
+function moveBosses() {
+    if (freezeTimer > 0) return;
+    for (const b of bosses) {
+        let closest = player;
+        let closestDist = Infinity;
+        for (const z of zombies) {
+            const d = Math.hypot(z.x - b.x, z.y - b.y);
+            if (d < closestDist) { closestDist = d; closest = z; }
+        }
+        const dx = Math.sign(closest.x - b.x) * b.speed;
+        const dy = Math.sign(closest.y - b.y) * b.speed;
+        const prev = { x: b.x, y: b.y };
+        b.x += dx;
+        b.y += dy;
+        b.x = Math.max(0, Math.min(b.x, canvas.width - TILE));
+        b.y = Math.max(0, Math.min(b.y, canvas.height - TILE));
+        if (isInsideWall(b)) { b.x = prev.x; b.y = prev.y; }
+    }
+}
+
 function checkCollisions() {
     // player vs humans
     for (let i = humans.length - 1; i >= 0; i--) {
@@ -231,7 +417,8 @@ function checkCollisions() {
             zombies.push(h);
             h.color = 'lime';
             score++;
-            playBeep();
+            achievements.totalInfections++;
+            playSound(440, 0.1); // infection sound
             updateHud();
         }
     }
@@ -239,14 +426,15 @@ function checkCollisions() {
     // zombies vs humans
     for (let j = 0; j < zombies.length; j++) {
         const z = zombies[j];
+        const infectionRadius = TILE + (level * 2); // Boost radius per level
         for (let i = humans.length - 1; i >= 0; i--) {
             const h = humans[i];
-            if (Math.abs(h.x - z.x) < TILE && Math.abs(h.y - z.y) < TILE) {
+            if (Math.abs(h.x - z.x) < infectionRadius && Math.abs(h.y - z.y) < infectionRadius) {
                 humans.splice(i, 1);
                 zombies.push(h);
                 h.color = 'lime';
                 score++;
-                playBeep();
+                playSound(440, 0.1); // infection sound
                 updateHud();
             }
         }
@@ -276,19 +464,83 @@ function checkCollisions() {
         }
     }
 
+    // zombies vs bosses
+    for (let i = bosses.length - 1; i >= 0; i--) {
+        const b = bosses[i];
+        for (let j = zombies.length - 1; j >= 0; j--) {
+            const z = zombies[j];
+            if (Math.abs(b.x - z.x) < TILE && Math.abs(b.y - z.y) < TILE) {
+                if (z === player) {
+                    if (invincibleTimer > 0) {
+                        b.health--;
+                        if (b.health <= 0) {
+                            bosses.splice(i, 1);
+                            score += 10; // Bonus score for boss
+                            achievements.bossesKilled++;
+                            playSound(300, 0.5, 'sawtooth'); // boss death sound
+                        }
+                    } else {
+                        endGame();
+                        return;
+                    }
+                } else {
+                    if (invincibleTimer > 0) {
+                        b.health--;
+                        if (b.health <= 0) {
+                            bosses.splice(i, 1);
+                            score += 10;
+                            achievements.bossesKilled++;
+                            playSound(300, 0.5, 'sawtooth'); // boss death sound
+                        }
+                    } else {
+                        zombies.splice(j, 1);
+                        b.health--;
+                        if (b.health <= 0) {
+                            bosses.splice(i, 1);
+                            score += 10;
+                            achievements.bossesKilled++;
+                            playSound(300, 0.5, 'sawtooth'); // boss death sound
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // player vs powerups
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
         if (Math.abs(p.x - player.x) < TILE && Math.abs(p.y - player.y) < TILE) {
             powerups.splice(i, 1);
+            achievements.powerupsCollected++;
             if (p.type === 'speed') {
                 speedBoostTimer = SPEED_BOOST_DURATION;
             } else if (p.type === 'invincible') {
                 invincibleTimer = INVINCIBLE_DURATION;
             } else if (p.type === 'freeze') {
                 freezeTimer = FREEZE_DURATION;
+            } else if (p.type === 'multiply') {
+                const newZombie = { ...randomPos(), color: 'lime' };
+                zombies.push(newZombie);
+                playSound(1000, 0.15); // multiply sound
+            } else if (p.type === 'rage') {
+                rageTimer = RAGE_DURATION;
+                playSound(1200, 0.1); // rage sound
+            } else if (p.type === 'explosion') {
+                // Infect all humans in radius
+                for (let i = humans.length - 1; i >= 0; i--) {
+                    const h = humans[i];
+                    const dist = Math.hypot(h.x - player.x, h.y - player.y);
+                    if (dist < EXPLOSION_RADIUS) {
+                        humans.splice(i, 1);
+                        zombies.push({ ...h, color: 'lime' });
+                        score++;
+                    }
+                }
+                playSound(500, 0.2, 'square'); // explosion sound
+                updateHud();
             }
-            playBeep(880);
+            playSound(880, 0.2); // powerup sound
             updateHud();
         }
     }
@@ -296,7 +548,10 @@ function checkCollisions() {
     // check level end
     if (humans.length === 0) {
         level++;
-        playBeep(660);
+        achievements.levelsCompleted++;
+        achievements.highestLevel = Math.max(achievements.highestLevel, level);
+        checkAchievements();
+        playSound(660, 0.3); // level complete sound
         startLevel();
     }
     if (invincibleTimer > 0) invincibleTimer--;
@@ -348,7 +603,42 @@ function drawPowerup(ent) {
         ctx.fillStyle = 'blue';
         ctx.fillRect(ent.x + TILE / 3, ent.y + TILE / 4, TILE / 3, TILE / 2);
         ctx.fillRect(ent.x + TILE / 4, ent.y + TILE / 3, TILE / 2, TILE / 3);
+    } else if (ent.type === 'multiply') {
+        // Star shape for multiply
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            ctx.lineTo(ent.x + TILE / 2 + (TILE / 2) * Math.cos(2 * Math.PI * i / 5), ent.y + TILE / 2 + (TILE / 2) * Math.sin(2 * Math.PI * i / 5));
+            ctx.lineTo(ent.x + TILE / 2 + (TILE / 4) * Math.cos(2 * Math.PI * (i + 0.5) / 5), ent.y + TILE / 2 + (TILE / 4) * Math.sin(2 * Math.PI * (i + 0.5) / 5));
+        }
+        ctx.closePath();
+        ctx.fill();
+    } else if (ent.type === 'rage') {
+        // Flame shape for rage
+        ctx.beginPath();
+        ctx.moveTo(ent.x + TILE / 2, ent.y);
+        ctx.quadraticCurveTo(ent.x + TILE, ent.y + TILE / 2, ent.x + TILE / 2, ent.y + TILE);
+        ctx.quadraticCurveTo(ent.x, ent.y + TILE / 2, ent.x + TILE / 2, ent.y);
+        ctx.fill();
+    } else if (ent.type === 'explosion') {
+        // Bomb shape
+        ctx.beginPath();
+        ctx.arc(ent.x + TILE / 2, ent.y + TILE / 2, TILE / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'black';
+        ctx.fillRect(ent.x + TILE / 2 - 2, ent.y, 4, TILE / 4);
     }
+}
+
+function drawBoss(boss) {
+    // Draw boss with health bar
+    ctx.fillStyle = boss.color;
+    ctx.fillRect(boss.x, boss.y, TILE, TILE);
+
+    // Health bar
+    ctx.fillStyle = 'red';
+    ctx.fillRect(boss.x, boss.y - 8, TILE, 4);
+    ctx.fillStyle = 'green';
+    ctx.fillRect(boss.x, boss.y - 8, TILE * (boss.health / boss.maxHealth), 4);
 }
 
 function draw() {
@@ -359,6 +649,7 @@ function draw() {
     for (const s of soldiers) drawCharacter(s, 'soldier');
     for (const p of powerups) drawPowerup(p);
     for (const z of zombies) drawCharacter(z, 'zombie');
+    for (const b of bosses) drawBoss(b);
 }
 
 function gameLoop() {
@@ -367,6 +658,7 @@ function gameLoop() {
     moveZombies();
     moveHumans();
     moveSoldiers();
+    moveBosses();
     checkCollisions();
     draw();
     updateHud();
@@ -374,20 +666,49 @@ function gameLoop() {
 }
 
 document.getElementById('restart-btn').addEventListener('click', resetGame);
+
+function updateAchievementDisplay() {
+    const achievementList = document.getElementById('achievement-list');
+    if (!achievementList) return;
+    
+    const achievementTexts = [
+        { key: 'infectionMaster', text: '🧟 Infection Master (100 infections)', unlocked: achievements.infectionMaster },
+        { key: 'survivor', text: '🏆 Survivor (10 levels)', unlocked: achievements.survivor },
+        { key: 'bossSlayer', text: '⚔️ Boss Slayer (5 bosses)', unlocked: achievements.bossSlayer }
+    ];
+    
+    achievementList.innerHTML = achievementTexts.map(a => 
+        `<div class="achievement ${a.unlocked ? '' : 'locked'}">${a.text}</div>`
+    ).join('');
+}
+
+// Update achievement display on page load
+document.addEventListener('DOMContentLoaded', () => {
+    updateAchievementDisplay();
+});
+
+// Also update when start screen is shown
 document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('go-restart-btn').addEventListener('click', startGame);
+document.getElementById('go-restart-btn').addEventListener('click', () => {
+    updateAchievementDisplay();
+    startGame();
+});
 
 function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('game-over').classList.add('hidden');
     gameRunning = true;
+    startBackgroundMusic();
     resetGame();
     requestAnimationFrame(gameLoop);
 }
 
 function endGame() {
     gameRunning = false;
+    stopBackgroundMusic();
     document.getElementById('final-score').textContent = `Score: ${score}`;
+    document.getElementById('level-reached').textContent = level;
+    document.getElementById('total-infections').textContent = achievements.totalInfections;
     if (score > highscore) {
         highscore = score;
         localStorage.setItem('highscore', highscore);
