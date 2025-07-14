@@ -22,8 +22,7 @@ let freezeTimer = 0;
 let rageTimer = 0;
 
 let walls = [];
-let buildings = [];
-const BUILDING_HEALTH = 3;
+let houses = []; // Track which walls are houses with doorways
 
 let player;
 let humans = [];
@@ -241,8 +240,19 @@ function randomPos() {
 
 function isInsideWall(p) {
     for (const w of walls) {
+        // Check if inside wall
         if (p.x < w.x + w.width && p.x + TILE > w.x &&
             p.y < w.y + w.height && p.y + TILE > w.y) {
+            
+            // Check if it's a house with doorway access
+            const house = houses.find(h => h.wall === w);
+            if (house) {
+                // Check if entity is in doorway area
+                if (p.x < house.doorway.x + house.doorway.width && p.x + TILE > house.doorway.x &&
+                    p.y < house.doorway.y + house.doorway.height && p.y + TILE > house.doorway.y) {
+                    return false; // Can pass through doorway
+                }
+            }
             return true;
         }
     }
@@ -259,20 +269,68 @@ function isInsideBuilding(p) {
     return null;
 }
 
-function createBuildings() {
-    buildings = [];
-    const buildingCount = 3 + Math.floor(level / 2);
-    for (let i = 0; i < buildingCount; i++) {
-        const width = 60 + Math.random() * 40;
-        const height = 60 + Math.random() * 40;
-        const x = Math.random() * (canvas.width - width - 100) + 50;
-        const y = Math.random() * (canvas.height - height - 100) + 50;
-        buildings.push({
-            x, y, width, height,
-            health: BUILDING_HEALTH,
-            maxHealth: BUILDING_HEALTH,
-            color: '#8B4513'
-        });
+function createMaze() {
+    walls = [];
+    houses = [];
+    const wallCount = 4 + level; // More walls per level
+    
+    for (let i = 0; i < wallCount; i++) {
+        const width = 60 + Math.random() * 80;
+        const height = 60 + Math.random() * 80;
+        const x = Math.floor(Math.random() * (canvas.width - width - 100)) + 50;
+        const y = Math.floor(Math.random() * (canvas.height - height - 100)) + 50;
+        
+        const wall = { x, y, width, height };
+        walls.push(wall);
+        
+        // Make some walls into houses (30% chance)
+        if (Math.random() < 0.3) {
+            // Create doorway on random side
+            const side = Math.floor(Math.random() * 4); // 0=top, 1=right, 2=bottom, 3=left
+            const doorSize = 30;
+            let doorway;
+            
+            switch (side) {
+                case 0: // Top
+                    doorway = {
+                        x: x + width/2 - doorSize/2,
+                        y: y - 5,
+                        width: doorSize,
+                        height: 10
+                    };
+                    break;
+                case 1: // Right
+                    doorway = {
+                        x: x + width - 5,
+                        y: y + height/2 - doorSize/2,
+                        width: 10,
+                        height: doorSize
+                    };
+                    break;
+                case 2: // Bottom
+                    doorway = {
+                        x: x + width/2 - doorSize/2,
+                        y: y + height - 5,
+                        width: doorSize,
+                        height: 10
+                    };
+                    break;
+                case 3: // Left
+                    doorway = {
+                        x: x - 5,
+                        y: y + height/2 - doorSize/2,
+                        width: 10,
+                        height: doorSize
+                    };
+                    break;
+            }
+            
+            houses.push({
+                wall: wall,
+                doorway: doorway,
+                side: side
+            });
+        }
     }
 }
 
@@ -334,18 +392,6 @@ function playBeep(freq = 440, dur = 0.1) {
     } catch (e) {}
 }
 
-function createMaze() {
-    walls = [];
-    const wallCount = 4 + level; // More walls per level
-    for (let i = 0; i < wallCount; i++) {
-        const x = Math.floor(Math.random() * (canvas.width / 100)) * 100;
-        const y = Math.floor(Math.random() * (canvas.height / 100)) * 100;
-        const width = 20 + Math.random() * 80;
-        const height = 20 + Math.random() * 80;
-        walls.push({ x, y, width, height });
-    }
-}
-
 function updateHud() {
     document.getElementById('infected-count').textContent = `Infected: ${zombies.length - 1}`;
     document.getElementById('level-info').textContent = `Level: ${level}`;
@@ -393,7 +439,6 @@ const LEVEL_START_DELAY = 180; // 3 seconds at 60fps
 function startLevel() {
     levelStartDelay = LEVEL_START_DELAY;
     createMaze();
-    createBuildings();
     player = { 
         ...randomPos(), 
         color: 'lime', 
@@ -451,13 +496,13 @@ function movePlayer() {
     
     // Check X movement first
     const testX = { x: newX, y: player.y };
-    if (!isInsideWall(testX) && !isInsideBuilding(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+    if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
         player.x = newX;
     }
     
     // Check Y movement separately
     const testY = { x: player.x, y: newY };
-    if (!isInsideWall(testY) && !isInsideBuilding(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+    if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
         player.y = newY;
     }
 }
@@ -486,13 +531,13 @@ function moveZombies() {
             
             // Check X movement first
             const testX = { x: newX, y: z.y };
-            if (!isInsideWall(testX) && !isInsideBuilding(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+            if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
                 z.x = newX;
             }
             
             // Check Y movement separately
             const testY = { x: z.x, y: newY };
-            if (!isInsideWall(testY) && !isInsideBuilding(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+            if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
                 z.y = newY;
             }
             
@@ -502,10 +547,10 @@ function moveZombies() {
                 const altX = z.x + Math.cos(angle) * zombieSpeed;
                 const altY = z.y + Math.sin(angle) * zombieSpeed;
                 
-                if (!isInsideWall({x: altX, y: z.y}) && !isInsideBuilding({x: altX, y: z.y}) && altX >= 0 && altX <= canvas.width - TILE) {
+                if (!isInsideWall({x: altX, y: z.y}) && altX >= 0 && altX <= canvas.width - TILE) {
                     z.x = altX;
                 }
-                if (!isInsideWall({x: z.x, y: altY}) && !isInsideBuilding({x: z.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
+                if (!isInsideWall({x: z.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
                     z.y = altY;
                 }
             }
@@ -552,13 +597,13 @@ function moveHumans() {
         if (h.y < edgeBuffer) dy += (edgeBuffer - h.y) * 0.1;
         if (h.y > canvas.height - edgeBuffer) dy -= (h.y - (canvas.height - edgeBuffer)) * 0.1;
         
-        // Add wall and building avoidance
+        // Add wall avoidance
         const futureX = h.x + dx * 3;
         const futureY = h.y + dy * 3;
-        if (isInsideWall({x: futureX, y: h.y}) || isInsideBuilding({x: futureX, y: h.y})) {
+        if (isInsideWall({x: futureX, y: h.y})) {
             dx = -dx * 0.5 + (Math.random() - 0.5) * 2;
         }
-        if (isInsideWall({x: h.x, y: futureY}) || isInsideBuilding({x: h.x, y: futureY})) {
+        if (isInsideWall({x: h.x, y: futureY})) {
             dy = -dy * 0.5 + (Math.random() - 0.5) * 2;
         }
         
@@ -575,7 +620,7 @@ function moveHumans() {
         h.y = Math.max(TILE * 2, Math.min(h.y, canvas.height - TILE * 3));
         
         // Better collision detection
-        if (isInsideWall(h) || isInsideBuilding(h)) {
+        if (isInsideWall(h)) {
             h.x = prev.x;
             h.y = prev.y;
             // Try moving in a different direction
@@ -584,7 +629,7 @@ function moveHumans() {
             h.y += Math.sin(angle) * HUMAN_SPEED;
             h.x = Math.max(TILE * 2, Math.min(h.x, canvas.width - TILE * 3));
             h.y = Math.max(TILE * 2, Math.min(h.y, canvas.height - TILE * 3));
-            if (isInsideWall(h) || isInsideBuilding(h)) {
+            if (isInsideWall(h)) {
                 h.x = prev.x;
                 h.y = prev.y;
             }
@@ -624,20 +669,20 @@ function moveSoldiers() {
             playSound(800, 0.05, 'square'); // Gunshot sound
         }
         
-        // Move towards closest zombie with building avoidance
+        // Move towards closest zombie
         const dx = Math.sign(closest.x - s.x) * SOLDIER_SPEED;
         const dy = Math.sign(closest.y - s.y) * SOLDIER_SPEED;
         const prev = { x: s.x, y: s.y };
         
         // Try X movement
         const testX = { x: s.x + dx, y: s.y };
-        if (!isInsideWall(testX) && !isInsideBuilding(testX) && testX.x >= 0 && testX.x <= canvas.width - TILE) {
+        if (!isInsideWall(testX) && testX.x >= 0 && testX.x <= canvas.width - TILE) {
             s.x += dx;
         }
         
         // Try Y movement
         const testY = { x: s.x, y: s.y + dy };
-        if (!isInsideWall(testY) && !isInsideBuilding(testY) && testY.y >= 0 && testY.y <= canvas.height - TILE) {
+        if (!isInsideWall(testY) && testY.y >= 0 && testY.y <= canvas.height - TILE) {
             s.y += dy;
         }
         
@@ -647,10 +692,10 @@ function moveSoldiers() {
             const altX = s.x + Math.cos(angle) * SOLDIER_SPEED;
             const altY = s.y + Math.sin(angle) * SOLDIER_SPEED;
             
-            if (!isInsideWall({x: altX, y: s.y}) && !isInsideBuilding({x: altX, y: s.y}) && altX >= 0 && altX <= canvas.width - TILE) {
+            if (!isInsideWall({x: altX, y: s.y}) && altX >= 0 && altX <= canvas.width - TILE) {
                 s.x = altX;
             }
-            if (!isInsideWall({x: s.x, y: altY}) && !isInsideBuilding({x: s.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
+            if (!isInsideWall({x: s.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
                 s.y = altY;
             }
         }
@@ -669,13 +714,7 @@ function lineIntersectsWall(x1, y1, x2, y2) {
 }
 
 function lineIntersectsBuilding(x1, y1, x2, y2) {
-    for (const building of buildings) {
-        // Check if line segment intersects with building rectangle
-        if (x1 >= building.x && x1 <= building.x + building.width && 
-            y1 >= building.y && y1 <= building.y + building.height) return true;
-        if (x2 >= building.x && x2 <= building.x + building.width && 
-            y2 >= building.y && y2 <= building.y + building.height) return true;
-    }
+    // Remove building collision - bullets only hit walls now
     return false;
 }
 
@@ -687,9 +726,8 @@ function moveBullets() {
         bullet.x += bullet.dx;
         bullet.y += bullet.dy;
         
-        // Check if bullet hits a wall or building
-        if (lineIntersectsWall(prevX, prevY, bullet.x, bullet.y) || 
-            lineIntersectsBuilding(prevX, prevY, bullet.x, bullet.y)) {
+        // Check if bullet hits a wall (including houses)
+        if (lineIntersectsWall(prevX, prevY, bullet.x, bullet.y)) {
             bullets.splice(i, 1);
             continue;
         }
@@ -897,7 +935,7 @@ function checkCollisions() {
         }
     }
 
-    // check level end - FIXED: Move this check to the end and ensure it works
+    // check level end - automatically advance when all humans are zombies
     if (humans.length === 0 && levelStartDelay === 0) {
         level++;
         achievements.levelsCompleted++;
@@ -905,23 +943,11 @@ function checkCollisions() {
         checkAchievements();
         playSound(660, 0.3); // level complete sound
         saveAchievements();
-        startLevel();
+        setTimeout(() => {
+            startLevel();
+        }, 1000); // Small delay before starting next level
     }
     if (invincibleTimer > 0) invincibleTimer--;
-}
-
-function checkBuildingCollisions() {
-    for (const z of zombies) {
-        const building = isInsideBuilding(z);
-        if (building) {
-            building.health--;
-            if (building.health <= 0) {
-                const index = buildings.indexOf(building);
-                buildings.splice(index, 1);
-                playSound(300, 0.3, 'sawtooth');
-            }
-        }
-    }
 }
 
 function drawCharacter(ent, type) {
@@ -1015,34 +1041,6 @@ function drawBullet(bullet) {
     ctx.fill();
 }
 
-function drawBuilding(building) {
-    // Draw building
-    ctx.fillStyle = building.color;
-    ctx.fillRect(building.x, building.y, building.width, building.height);
-    
-    // Draw building outline
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(building.x, building.y, building.width, building.height);
-    
-    // Draw windows
-    ctx.fillStyle = '#FFD700';
-    const windowSize = 8;
-    for (let x = building.x + 10; x < building.x + building.width - 10; x += 20) {
-        for (let y = building.y + 10; y < building.y + building.height - 10; y += 20) {
-            ctx.fillRect(x, y, windowSize, windowSize);
-        }
-    }
-    
-    // Draw health bar if damaged
-    if (building.health < building.maxHealth) {
-        ctx.fillStyle = 'red';
-        ctx.fillRect(building.x, building.y - 8, building.width, 4);
-        ctx.fillStyle = 'green';
-        ctx.fillRect(building.x, building.y - 8, building.width * (building.health / building.maxHealth), 4);
-    }
-}
-
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -1066,18 +1064,37 @@ function draw() {
         ctx.stroke();
     }
     
-    // Draw buildings first (behind other entities)
-    for (const building of buildings) {
-        drawBuilding(building);
-    }
-    
-    // Draw walls with better styling
-    ctx.fillStyle = '#444';
-    ctx.strokeStyle = '#666';
+    // Draw walls with better styling (some are houses)
     ctx.lineWidth = 2;
     for (const w of walls) {
-        ctx.fillRect(w.x, w.y, w.width, w.height);
-        ctx.strokeRect(w.x, w.y, w.width, w.height);
+        const house = houses.find(h => h.wall === w);
+        
+        if (house) {
+            // Draw house (brown color)
+            ctx.fillStyle = '#8B4513';
+            ctx.strokeStyle = '#654321';
+            ctx.fillRect(w.x, w.y, w.width, w.height);
+            ctx.strokeRect(w.x, w.y, w.width, w.height);
+            
+            // Draw windows
+            ctx.fillStyle = '#FFD700';
+            const windowSize = 8;
+            for (let x = w.x + 15; x < w.x + w.width - 15; x += 25) {
+                for (let y = w.y + 15; y < w.y + w.height - 15; y += 25) {
+                    ctx.fillRect(x, y, windowSize, windowSize);
+                }
+            }
+            
+            // Draw doorway (opening)
+            ctx.fillStyle = '#1a1a1a'; // Same as background
+            ctx.fillRect(house.doorway.x, house.doorway.y, house.doorway.width, house.doorway.height);
+        } else {
+            // Draw regular wall
+            ctx.fillStyle = '#444';
+            ctx.strokeStyle = '#666';
+            ctx.fillRect(w.x, w.y, w.width, w.height);
+            ctx.strokeRect(w.x, w.y, w.width, w.height);
+        }
     }
     
     for (const h of humans) drawCharacter(h, 'human');
@@ -1131,7 +1148,6 @@ function gameLoop() {
     moveBosses();
     moveBullets();
     checkCollisions();
-    checkBuildingCollisions();
     draw();
     updateHud();
     requestAnimationFrame(gameLoop);
