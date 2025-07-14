@@ -4,7 +4,7 @@ const ctx = canvas.getContext('2d');
 const TILE = 20; // size for all entities
 const BASE_SPEED = 3; // base player speed
 const HUMAN_SPEED = 1;
-const SOLDIER_SPEED = 1.5;
+const SOLDIER_SPEED = 1.0; // Reduced from 1.5 to make soldiers slower than zombies
 const SPEED_BOOST_DURATION = 300; // frames
 const SPEED_BOOST_MULT = 2;
 const INVINCIBLE_DURATION = 300;
@@ -209,12 +209,12 @@ function spawnPowerups(count) {
 }
 
 function spawnBoss() {
-    const boss = {
-        ...randomPos(),
-        color: 'darkred',
+    const boss = { 
+        ...randomPos(), 
+        color: 'darkred', 
         health: 3 + Math.floor(level / 5),
         maxHealth: 3 + Math.floor(level / 5),
-        speed: SOLDIER_SPEED * 1.5
+        speed: SOLDIER_SPEED * 1.2 // Reduced multiplier so bosses aren't too fast
     };
     bosses.push(boss);
 }
