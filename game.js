@@ -247,13 +247,26 @@ function isInsideWall(p) {
             // Check if it's a house with doorway access
             const house = houses.find(h => h.wall === w);
             if (house) {
-                // Check if entity is in doorway area
+                // Check if entity is in doorway area (can pass through)
                 if (p.x < house.doorway.x + house.doorway.width && p.x + TILE > house.doorway.x &&
                     p.y < house.doorway.y + house.doorway.height && p.y + TILE > house.doorway.y) {
                     return false; // Can pass through doorway
                 }
+                
+                // Check if entity is inside house interior (completely open)
+                const interior = {
+                    x: w.x + 10,
+                    y: w.y + 10,
+                    width: w.width - 20,
+                    height: w.height - 20
+                };
+                
+                if (p.x >= interior.x && p.x + TILE <= interior.x + interior.width &&
+                    p.y >= interior.y && p.y + TILE <= interior.y + interior.height) {
+                    return false; // Inside house interior - no barriers
+                }
             }
-            return true;
+            return true; // Hit wall
         }
     }
     return false;
@@ -275,19 +288,19 @@ function createMaze() {
     const wallCount = 4 + level; // More walls per level
     
     for (let i = 0; i < wallCount; i++) {
-        const width = 60 + Math.random() * 80;
-        const height = 60 + Math.random() * 80;
+        const width = 80 + Math.random() * 60;
+        const height = 80 + Math.random() * 60;
         const x = Math.floor(Math.random() * (canvas.width - width - 100)) + 50;
         const y = Math.floor(Math.random() * (canvas.height - height - 100)) + 50;
         
         const wall = { x, y, width, height };
         walls.push(wall);
         
-        // Make some walls into houses (30% chance)
-        if (Math.random() < 0.3) {
-            // Create doorway on random side
+        // Make some walls into houses (40% chance)
+        if (Math.random() < 0.4) {
+            // Create single doorway on random side
             const side = Math.floor(Math.random() * 4); // 0=top, 1=right, 2=bottom, 3=left
-            const doorSize = 30;
+            const doorSize = 40;
             let doorway;
             
             switch (side) {
@@ -943,9 +956,8 @@ function checkCollisions() {
         checkAchievements();
         playSound(660, 0.3); // level complete sound
         saveAchievements();
-        setTimeout(() => {
-            startLevel();
-        }, 1000); // Small delay before starting next level
+        // Immediate level transition
+        startLevel();
     }
     if (invincibleTimer > 0) invincibleTimer--;
 }
@@ -1064,32 +1076,36 @@ function draw() {
         ctx.stroke();
     }
     
-    // Draw walls with better styling (some are houses)
+    // Draw walls and houses - all gray, no orange/yellow
     ctx.lineWidth = 2;
     for (const w of walls) {
         const house = houses.find(h => h.wall === w);
         
         if (house) {
-            // Draw house (brown color)
-            ctx.fillStyle = '#8B4513';
-            ctx.strokeStyle = '#654321';
-            ctx.fillRect(w.x, w.y, w.width, w.height);
-            ctx.strokeRect(w.x, w.y, w.width, w.height);
+            // Draw house exterior walls (gray)
+            ctx.fillStyle = '#555';
+            ctx.strokeStyle = '#777';
             
-            // Draw windows
-            ctx.fillStyle = '#FFD700';
-            const windowSize = 8;
-            for (let x = w.x + 15; x < w.x + w.width - 15; x += 25) {
-                for (let y = w.y + 15; y < w.y + w.height - 15; y += 25) {
-                    ctx.fillRect(x, y, windowSize, windowSize);
-                }
-            }
+            // Draw outer walls
+            ctx.fillRect(w.x, w.y, w.width, 10); // Top wall
+            ctx.fillRect(w.x, w.y + w.height - 10, w.width, 10); // Bottom wall
+            ctx.fillRect(w.x, w.y, 10, w.height); // Left wall
+            ctx.fillRect(w.x + w.width - 10, w.y, 10, w.height); // Right wall
             
-            // Draw doorway (opening)
-            ctx.fillStyle = '#1a1a1a'; // Same as background
+            ctx.strokeRect(w.x, w.y, w.width, 10); // Top wall border
+            ctx.strokeRect(w.x, w.y + w.height - 10, w.width, 10); // Bottom wall border
+            ctx.strokeRect(w.x, w.y, 10, w.height); // Left wall border
+            ctx.strokeRect(w.x + w.width - 10, w.y, 10, w.height); // Right wall border
+            
+            // Draw doorway opening (same as background)
+            ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(house.doorway.x, house.doorway.y, house.doorway.width, house.doorway.height);
+            
+            // Draw interior floor (slightly lighter gray)
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(w.x + 10, w.y + 10, w.width - 20, w.height - 20);
         } else {
-            // Draw regular wall
+            // Draw regular wall (gray)
             ctx.fillStyle = '#444';
             ctx.strokeStyle = '#666';
             ctx.fillRect(w.x, w.y, w.width, w.height);
