@@ -179,9 +179,18 @@ function spawnHumans(count) {
     }
 }
 
+let bullets = [];
+const BULLET_SPEED = 4;
+const SOLDIER_SHOOT_RANGE = 100;
+const SOLDIER_SHOOT_COOLDOWN = 60; // frames between shots
+
 function spawnSoldiers(count) {
     for (let i = 0; i < count; i++) {
-        soldiers.push({ ...randomPos(), color: 'red' });
+        soldiers.push({ 
+            ...randomPos(), 
+            color: 'red',
+            shootCooldown: 0
+        });
     }
 }
 
@@ -273,6 +282,7 @@ function startLevel() {
     soldiers = [];
     bosses = [];
     powerups = [];
+    bullets = [];
     spawnHumans(Math.floor((5 + level * 5) * difficultyMultipliers[difficulty].humanCount));
     if (level > 1) spawnSoldiers(Math.floor((level - 1) * difficultyMultipliers[difficulty].soldierCount));
     if (level % 5 === 0) spawnBoss();
@@ -371,12 +381,33 @@ function moveSoldiers() {
         return;
     }
     for (const s of soldiers) {
+        // Decrease shoot cooldown
+        if (s.shootCooldown > 0) s.shootCooldown--;
+        
         let closest = player;
         let closestDist = Infinity;
         for (const z of zombies) {
             const d = Math.hypot(z.x - s.x, z.y - s.y);
             if (d < closestDist) { closestDist = d; closest = z; }
         }
+        
+        // Shoot if in range and cooldown is ready
+        if (closestDist < SOLDIER_SHOOT_RANGE && s.shootCooldown === 0) {
+            const dx = closest.x - s.x;
+            const dy = closest.y - s.y;
+            const dist = Math.hypot(dx, dy);
+            bullets.push({
+                x: s.x + TILE / 2,
+                y: s.y + TILE / 2,
+                dx: (dx / dist) * BULLET_SPEED,
+                dy: (dy / dist) * BULLET_SPEED,
+                target: closest
+            });
+            s.shootCooldown = SOLDIER_SHOOT_COOLDOWN;
+            playSound(800, 0.05, 'square'); // Gunshot sound
+        }
+        
+        // Move towards closest zombie
         const dx = Math.sign(closest.x - s.x) * SOLDIER_SPEED;
         const dy = Math.sign(closest.y - s.y) * SOLDIER_SPEED;
         const prev = { x: s.x, y: s.y };
@@ -385,6 +416,39 @@ function moveSoldiers() {
         s.x = Math.max(0, Math.min(s.x, canvas.width - TILE));
         s.y = Math.max(0, Math.min(s.y, canvas.height - TILE));
         if (isInsideWall(s)) { s.x = prev.x; s.y = prev.y; }
+    }
+}
+
+function moveBullets() {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const bullet = bullets[i];
+        bullet.x += bullet.dx;
+        bullet.y += bullet.dy;
+        
+        // Remove bullets that go off screen
+        if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+            bullets.splice(i, 1);
+            continue;
+        }
+        
+        // Check collision with zombies
+        for (let j = zombies.length - 1; j >= 0; j--) {
+            const z = zombies[j];
+            if (Math.abs(bullet.x - (z.x + TILE/2)) < TILE/2 && 
+                Math.abs(bullet.y - (z.y + TILE/2)) < TILE/2) {
+                bullets.splice(i, 1);
+                if (z === player) {
+                    if (invincibleTimer === 0) {
+                        endGame();
+                        return;
+                    }
+                } else {
+                    zombies.splice(j, 1);
+                    playSound(400, 0.1, 'sawtooth');
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -414,8 +478,14 @@ function checkCollisions() {
         const h = humans[i];
         if (Math.abs(h.x - player.x) < TILE && Math.abs(h.y - player.y) < TILE) {
             humans.splice(i, 1);
-            zombies.push(h);
-            h.color = 'lime';
+            // Create new zombie with proper properties
+            const newZombie = { 
+                x: h.x, 
+                y: h.y, 
+                color: 'lime',
+                isActive: true // Mark as active zombie
+            };
+            zombies.push(newZombie);
             score++;
             achievements.totalInfections++;
             playSound(440, 0.1); // infection sound
@@ -431,9 +501,16 @@ function checkCollisions() {
             const h = humans[i];
             if (Math.abs(h.x - z.x) < infectionRadius && Math.abs(h.y - z.y) < infectionRadius) {
                 humans.splice(i, 1);
-                zombies.push(h);
-                h.color = 'lime';
+                // Create new zombie with proper properties
+                const newZombie = { 
+                    x: h.x, 
+                    y: h.y, 
+                    color: 'lime',
+                    isActive: true // Mark as active zombie
+                };
+                zombies.push(newZombie);
                 score++;
+                achievements.totalInfections++;
                 playSound(440, 0.1); // infection sound
                 updateHud();
             }
@@ -641,6 +718,13 @@ function drawBoss(boss) {
     ctx.fillRect(boss.x, boss.y - 8, TILE * (boss.health / boss.maxHealth), 4);
 }
 
+function drawBullet(bullet) {
+    ctx.fillStyle = 'yellow';
+    ctx.beginPath();
+    ctx.arc(bullet.x, bullet.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#333';
@@ -650,6 +734,7 @@ function draw() {
     for (const p of powerups) drawPowerup(p);
     for (const z of zombies) drawCharacter(z, 'zombie');
     for (const b of bosses) drawBoss(b);
+    for (const bullet of bullets) drawBullet(bullet);
 }
 
 function gameLoop() {
@@ -659,6 +744,7 @@ function gameLoop() {
     moveHumans();
     moveSoldiers();
     moveBosses();
+    moveBullets();
     checkCollisions();
     draw();
     updateHud();
