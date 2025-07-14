@@ -254,6 +254,16 @@ function updateHud() {
     document.getElementById('powerup-info').textContent = parts.join(' ');
     document.getElementById('score-info').textContent = `Score: ${score}`;
     document.getElementById('highscore-info').textContent = `Highscore: ${highscore}`;
+    
+    // Add health display for main player
+    const healthDisplay = document.getElementById('health-info') || (() => {
+        const healthSpan = document.createElement('span');
+        healthSpan.id = 'health-info';
+        healthSpan.style.color = '#ff4444';
+        document.getElementById('hud').appendChild(healthSpan);
+        return healthSpan;
+    })();
+    healthDisplay.textContent = `Health: ${player.health || 3}`;
 }
 
 let difficulty = 'medium';
@@ -274,9 +284,19 @@ function selectDifficulty(newDifficulty) {
     document.getElementById(`${newDifficulty}-btn`).classList.add('selected');
 }
 
+let levelStartDelay = 0;
+const LEVEL_START_DELAY = 180; // 3 seconds at 60fps
+
 function startLevel() {
+    levelStartDelay = LEVEL_START_DELAY;
     createMaze();
-    player = { ...randomPos(), color: 'lime', speed: BASE_SPEED * difficultyMultipliers[difficulty].playerSpeed };
+    player = { 
+        ...randomPos(), 
+        color: 'lime', 
+        speed: BASE_SPEED * difficultyMultipliers[difficulty].playerSpeed,
+        health: 3,
+        maxHealth: 3
+    };
     zombies = [player];
     humans = [];
     soldiers = [];
@@ -315,15 +335,26 @@ function movePlayer() {
         rageTimer--;
     }
     const prev = { x: player.x, y: player.y };
-    if (keys['ArrowUp'] || keys['w']) player.y -= moveSpeed;
-    if (keys['ArrowDown'] || keys['s']) player.y += moveSpeed;
-    if (keys['ArrowLeft'] || keys['a']) player.x -= moveSpeed;
-    if (keys['ArrowRight'] || keys['d']) player.x += moveSpeed;
-    player.x = Math.max(0, Math.min(player.x, canvas.width - TILE));
-    player.y = Math.max(0, Math.min(player.y, canvas.height - TILE));
-    if (isInsideWall(player)) {
-        player.x = prev.x;
-        player.y = prev.y;
+    
+    // Try moving in each direction separately to prevent getting stuck
+    let newX = player.x;
+    let newY = player.y;
+    
+    if (keys['ArrowUp'] || keys['w']) newY -= moveSpeed;
+    if (keys['ArrowDown'] || keys['s']) newY += moveSpeed;
+    if (keys['ArrowLeft'] || keys['a']) newX -= moveSpeed;
+    if (keys['ArrowRight'] || keys['d']) newX += moveSpeed;
+    
+    // Check X movement first
+    const testX = { x: newX, y: player.y };
+    if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+        player.x = newX;
+    }
+    
+    // Check Y movement separately
+    const testY = { x: player.x, y: newY };
+    if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+        player.y = newY;
     }
 }
 
@@ -344,13 +375,35 @@ function moveZombies() {
             const dx = Math.sign(closest.x - z.x) * zombieSpeed;
             const dy = Math.sign(closest.y - z.y) * zombieSpeed;
             const prev = { x: z.x, y: z.y };
-            z.x += dx;
-            z.y += dy;
-            z.x = Math.max(0, Math.min(z.x, canvas.width - TILE));
-            z.y = Math.max(0, Math.min(z.y, canvas.height - TILE));
-            if (isInsideWall(z)) {
-                z.x = prev.x;
-                z.y = prev.y;
+            
+            // Try moving in each direction separately to prevent getting stuck
+            let newX = z.x + dx;
+            let newY = z.y + dy;
+            
+            // Check X movement first
+            const testX = { x: newX, y: z.y };
+            if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+                z.x = newX;
+            }
+            
+            // Check Y movement separately
+            const testY = { x: z.x, y: newY };
+            if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+                z.y = newY;
+            }
+            
+            // If still stuck, try alternative path
+            if (z.x === prev.x && z.y === prev.y) {
+                const angle = Math.atan2(closest.y - z.y, closest.x - z.x) + (Math.random() - 0.5) * Math.PI / 2;
+                const altX = z.x + Math.cos(angle) * zombieSpeed;
+                const altY = z.y + Math.sin(angle) * zombieSpeed;
+                
+                if (!isInsideWall({x: altX, y: z.y}) && altX >= 0 && altX <= canvas.width - TILE) {
+                    z.x = altX;
+                }
+                if (!isInsideWall({x: z.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
+                    z.y = altY;
+                }
             }
         }
     }
@@ -358,19 +411,72 @@ function moveZombies() {
 
 function moveHumans() {
     for (const h of humans) {
-        const target = zombies[0];
-        let dx = h.x - target.x;
-        let dy = h.y - target.y;
+        // Find closest zombie threat
+        let closestZombie = zombies[0];
+        let closestDist = Infinity;
+        for (const z of zombies) {
+            const dist = Math.hypot(h.x - z.x, h.y - z.y);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestZombie = z;
+            }
+        }
+        
+        // Calculate escape direction from closest zombie
+        let dx = h.x - closestZombie.x;
+        let dy = h.y - closestZombie.y;
         const dist = Math.hypot(dx, dy) || 1;
         dx = (dx / dist) * HUMAN_SPEED;
         dy = (dy / dist) * HUMAN_SPEED;
-        h.x += dx + (Math.random() - 0.5) * 0.5;
-        h.y += dy + (Math.random() - 0.5) * 0.5;
-        h.x = Math.max(0, Math.min(h.x, canvas.width - TILE));
-        h.y = Math.max(0, Math.min(h.y, canvas.height - TILE));
+        
+        // Add avoidance from other humans to prevent clustering
+        for (const other of humans) {
+            if (other === h) continue;
+            const otherDist = Math.hypot(h.x - other.x, h.y - other.y);
+            if (otherDist < TILE * 2) { // If too close to another human
+                const avoidX = (h.x - other.x) / otherDist;
+                const avoidY = (h.y - other.y) / otherDist;
+                dx += avoidX * 0.5;
+                dy += avoidY * 0.5;
+            }
+        }
+        
+        // Add wall avoidance
+        const futureX = h.x + dx * 3;
+        const futureY = h.y + dy * 3;
+        if (isInsideWall({x: futureX, y: h.y})) {
+            dx = -dx * 0.5 + (Math.random() - 0.5) * 2;
+        }
+        if (isInsideWall({x: h.x, y: futureY})) {
+            dy = -dy * 0.5 + (Math.random() - 0.5) * 2;
+        }
+        
+        // Add some randomness to prevent predictable movement
+        dx += (Math.random() - 0.5) * 0.3;
+        dy += (Math.random() - 0.5) * 0.3;
+        
+        const prev = { x: h.x, y: h.y };
+        h.x += dx;
+        h.y += dy;
+        
+        // Keep within bounds
+        h.x = Math.max(TILE, Math.min(h.x, canvas.width - TILE * 2));
+        h.y = Math.max(TILE, Math.min(h.y, canvas.height - TILE * 2));
+        
+        // Better wall collision - try alternative directions if stuck
         if (isInsideWall(h)) {
-            h.x -= dx;
-            h.y -= dy;
+            h.x = prev.x;
+            h.y = prev.y;
+            // Try moving in a different direction
+            const angle = Math.random() * Math.PI * 2;
+            h.x += Math.cos(angle) * HUMAN_SPEED;
+            h.y += Math.sin(angle) * HUMAN_SPEED;
+            h.x = Math.max(TILE, Math.min(h.x, canvas.width - TILE * 2));
+            h.y = Math.max(TILE, Math.min(h.y, canvas.height - TILE * 2));
+            if (isInsideWall(h)) {
+                h.x = prev.x;
+                h.y = prev.y;
+            }
         }
     }
 }
@@ -419,11 +525,30 @@ function moveSoldiers() {
     }
 }
 
+function lineIntersectsWall(x1, y1, x2, y2) {
+    for (const wall of walls) {
+        // Check if line segment intersects with wall rectangle
+        if (x1 >= wall.x && x1 <= wall.x + wall.width && 
+            y1 >= wall.y && y1 <= wall.y + wall.height) return true;
+        if (x2 >= wall.x && x2 <= wall.x + wall.width && 
+            y2 >= wall.y && y2 <= wall.y + wall.height) return true;
+    }
+    return false;
+}
+
 function moveBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
+        const prevX = bullet.x;
+        const prevY = bullet.y;
         bullet.x += bullet.dx;
         bullet.y += bullet.dy;
+        
+        // Check if bullet hits a wall
+        if (lineIntersectsWall(prevX, prevY, bullet.x, bullet.y)) {
+            bullets.splice(i, 1);
+            continue;
+        }
         
         // Remove bullets that go off screen
         if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
@@ -439,8 +564,14 @@ function moveBullets() {
                 bullets.splice(i, 1);
                 if (z === player) {
                     if (invincibleTimer === 0) {
-                        endGame();
-                        return;
+                        // Main player takes multiple hits
+                        if (!player.health) player.health = 3;
+                        player.health--;
+                        if (player.health <= 0) {
+                            endGame();
+                            return;
+                        }
+                        playSound(600, 0.2, 'sawtooth');
                     }
                 } else {
                     zombies.splice(j, 1);
@@ -727,18 +858,80 @@ function drawBullet(bullet) {
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#333';
-    for (const w of walls) ctx.fillRect(w.x, w.y, w.width, w.height);
+    
+    // Draw background pattern for city atmosphere
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Add subtle grid pattern
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+    }
+    
+    // Draw walls with better styling
+    ctx.fillStyle = '#444';
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 2;
+    for (const w of walls) {
+        ctx.fillRect(w.x, w.y, w.width, w.height);
+        ctx.strokeRect(w.x, w.y, w.width, w.height);
+    }
+    
     for (const h of humans) drawCharacter(h, 'human');
     for (const s of soldiers) drawCharacter(s, 'soldier');
     for (const p of powerups) drawPowerup(p);
     for (const z of zombies) drawCharacter(z, 'zombie');
     for (const b of bosses) drawBoss(b);
     for (const bullet of bullets) drawBullet(bullet);
+    
+    // Draw player health bar
+    if (player.health < player.maxHealth) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(player.x, player.y - 10, TILE, 4);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(player.x, player.y - 10, TILE * (player.health / player.maxHealth), 4);
+    }
 }
 
 function gameLoop() {
     if (!gameRunning) return;
+    
+    // Handle level start delay
+    if (levelStartDelay > 0) {
+        levelStartDelay--;
+        // Draw countdown
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#333';
+        for (const w of walls) ctx.fillRect(w.x, w.y, w.width, w.height);
+        for (const h of humans) drawCharacter(h, 'human');
+        for (const s of soldiers) drawCharacter(s, 'soldier');
+        for (const p of powerups) drawPowerup(p);
+        for (const z of zombies) drawCharacter(z, 'zombie');
+        for (const b of bosses) drawBoss(b);
+        
+        // Draw countdown text
+        ctx.fillStyle = 'white';
+        ctx.font = '48px "Press Start 2P"';
+        ctx.textAlign = 'center';
+        const countdown = Math.ceil(levelStartDelay / 60);
+        ctx.fillText(countdown.toString(), canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = 'left';
+        
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
     movePlayer();
     moveZombies();
     moveHumans();

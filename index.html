@@ -21,7 +21,41 @@
             <button id="restart-btn">Restart</button>
         </div>
         <div id="start-screen" class="overlay">
-            <h1>Zombie Maker</h1>
+            <div id="game-intro">
+                <h1>Zombie Maker</h1>
+                <div id="story-text">
+                    <p>The virus has begun...</p>
+                    <p>You are Patient Zero, the first infected.</p>
+                    <p>Spread the contagion. Convert the living.</p>
+                    <p>Avoid the soldiers. Build your horde.</p>
+                    <p>The apocalypse starts with you.</p>
+                </div>
+            </div>
+            <div id="game-legend">
+                <h3>Game Elements</h3>
+                <div id="legend-items">
+                    <div class="legend-item">
+                        <div class="legend-icon zombie-icon"></div>
+                        <span>Zombies (Green) - Your horde</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon human-icon"></div>
+                        <span>Humans (Blue) - Infect them</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon soldier-icon"></div>
+                        <span>Soldiers (Red) - Shoot zombies</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon wall-icon"></div>
+                        <span>Walls (Gray) - Block movement & bullets</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon powerup-icon"></div>
+                        <span>Powerups - Speed, Shield, Freeze, etc.</span>
+                    </div>
+                </div>
+            </div>
             <div id="difficulty-selection">
                 <h3>Select Difficulty</h3>
                 <div id="difficulty-buttons">
@@ -34,7 +68,7 @@
                 <h3>Achievements</h3>
                 <div id="achievement-list"></div>
             </div>
-            <button id="start-btn">Start</button>
+            <button id="start-btn">Begin Infection</button>
         </div>
         <div id="game-over" class="overlay hidden">
             <h1>Game Over</h1>
