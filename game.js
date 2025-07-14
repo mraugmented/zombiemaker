@@ -22,6 +22,8 @@ let freezeTimer = 0;
 let rageTimer = 0;
 
 let walls = [];
+let buildings = [];
+const BUILDING_HEALTH = 3;
 
 let player;
 let humans = [];
@@ -84,10 +86,14 @@ let audioContext;
 let backgroundMusic;
 let musicPlaying = false;
 
+let titleMusic;
+let titleMusicPlaying = false;
+
 function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         createBackgroundMusic();
+        createTitleMusic();
     } catch (e) {
         console.log('Audio not supported');
     }
@@ -122,6 +128,76 @@ function stopBackgroundMusic() {
         backgroundMusic.oscillator.stop();
         musicPlaying = false;
         createBackgroundMusic(); // Recreate for next time
+    }
+}
+
+function createTitleMusic() {
+    if (!audioContext) return;
+    
+    // Create multiple oscillators for layered creepy effect
+    const bass = audioContext.createOscillator();
+    const mid = audioContext.createOscillator();
+    const high = audioContext.createOscillator();
+    
+    const bassGain = audioContext.createGain();
+    const midGain = audioContext.createGain();
+    const highGain = audioContext.createGain();
+    
+    // Bass drone
+    bass.type = 'sine';
+    bass.frequency.setValueAtTime(55, audioContext.currentTime); // Low A
+    bassGain.gain.setValueAtTime(0.15, audioContext.currentTime);
+    
+    // Mid eerie tone
+    mid.type = 'triangle';
+    mid.frequency.setValueAtTime(110, audioContext.currentTime);
+    midGain.gain.setValueAtTime(0.08, audioContext.currentTime);
+    
+    // High unsettling whistle
+    high.type = 'sine';
+    high.frequency.setValueAtTime(880, audioContext.currentTime);
+    highGain.gain.setValueAtTime(0.03, audioContext.currentTime);
+    
+    // Add subtle frequency modulation for creepy effect
+    const lfo = audioContext.createOscillator();
+    const lfoGain = audioContext.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(0.1, audioContext.currentTime);
+    lfoGain.gain.setValueAtTime(10, audioContext.currentTime);
+    
+    lfo.connect(lfoGain);
+    lfoGain.connect(mid.frequency);
+    
+    // Connect everything
+    bass.connect(bassGain);
+    mid.connect(midGain);
+    high.connect(highGain);
+    
+    bassGain.connect(audioContext.destination);
+    midGain.connect(audioContext.destination);
+    highGain.connect(audioContext.destination);
+    
+    titleMusic = { bass, mid, high, lfo, bassGain, midGain, highGain };
+}
+
+function startTitleMusic() {
+    if (!titleMusicPlaying && titleMusic && audioContext) {
+        titleMusic.bass.start();
+        titleMusic.mid.start();
+        titleMusic.high.start();
+        titleMusic.lfo.start();
+        titleMusicPlaying = true;
+    }
+}
+
+function stopTitleMusic() {
+    if (titleMusicPlaying && titleMusic) {
+        titleMusic.bass.stop();
+        titleMusic.mid.stop();
+        titleMusic.high.stop();
+        titleMusic.lfo.stop();
+        titleMusicPlaying = false;
+        createTitleMusic(); // Recreate for next time
     }
 }
 
@@ -171,6 +247,33 @@ function isInsideWall(p) {
         }
     }
     return false;
+}
+
+function isInsideBuilding(p) {
+    for (const b of buildings) {
+        if (p.x < b.x + b.width && p.x + TILE > b.x &&
+            p.y < b.y + b.height && p.y + TILE > b.y) {
+            return b;
+        }
+    }
+    return null;
+}
+
+function createBuildings() {
+    buildings = [];
+    const buildingCount = 3 + Math.floor(level / 2);
+    for (let i = 0; i < buildingCount; i++) {
+        const width = 60 + Math.random() * 40;
+        const height = 60 + Math.random() * 40;
+        const x = Math.random() * (canvas.width - width - 100) + 50;
+        const y = Math.random() * (canvas.height - height - 100) + 50;
+        buildings.push({
+            x, y, width, height,
+            health: BUILDING_HEALTH,
+            maxHealth: BUILDING_HEALTH,
+            color: '#8B4513'
+        });
+    }
 }
 
 function spawnHumans(count) {
@@ -290,6 +393,7 @@ const LEVEL_START_DELAY = 180; // 3 seconds at 60fps
 function startLevel() {
     levelStartDelay = LEVEL_START_DELAY;
     createMaze();
+    createBuildings();
     player = { 
         ...randomPos(), 
         color: 'lime', 
@@ -347,13 +451,13 @@ function movePlayer() {
     
     // Check X movement first
     const testX = { x: newX, y: player.y };
-    if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+    if (!isInsideWall(testX) && !isInsideBuilding(testX) && newX >= 0 && newX <= canvas.width - TILE) {
         player.x = newX;
     }
     
     // Check Y movement separately
     const testY = { x: player.x, y: newY };
-    if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+    if (!isInsideWall(testY) && !isInsideBuilding(testY) && newY >= 0 && newY <= canvas.height - TILE) {
         player.y = newY;
     }
 }
@@ -382,13 +486,13 @@ function moveZombies() {
             
             // Check X movement first
             const testX = { x: newX, y: z.y };
-            if (!isInsideWall(testX) && newX >= 0 && newX <= canvas.width - TILE) {
+            if (!isInsideWall(testX) && !isInsideBuilding(testX) && newX >= 0 && newX <= canvas.width - TILE) {
                 z.x = newX;
             }
             
             // Check Y movement separately
             const testY = { x: z.x, y: newY };
-            if (!isInsideWall(testY) && newY >= 0 && newY <= canvas.height - TILE) {
+            if (!isInsideWall(testY) && !isInsideBuilding(testY) && newY >= 0 && newY <= canvas.height - TILE) {
                 z.y = newY;
             }
             
@@ -398,10 +502,10 @@ function moveZombies() {
                 const altX = z.x + Math.cos(angle) * zombieSpeed;
                 const altY = z.y + Math.sin(angle) * zombieSpeed;
                 
-                if (!isInsideWall({x: altX, y: z.y}) && altX >= 0 && altX <= canvas.width - TILE) {
+                if (!isInsideWall({x: altX, y: z.y}) && !isInsideBuilding({x: altX, y: z.y}) && altX >= 0 && altX <= canvas.width - TILE) {
                     z.x = altX;
                 }
-                if (!isInsideWall({x: z.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
+                if (!isInsideWall({x: z.x, y: altY}) && !isInsideBuilding({x: z.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
                     z.y = altY;
                 }
             }
@@ -433,7 +537,7 @@ function moveHumans() {
         for (const other of humans) {
             if (other === h) continue;
             const otherDist = Math.hypot(h.x - other.x, h.y - other.y);
-            if (otherDist < TILE * 2) { // If too close to another human
+            if (otherDist < TILE * 2) {
                 const avoidX = (h.x - other.x) / otherDist;
                 const avoidY = (h.y - other.y) / otherDist;
                 dx += avoidX * 0.5;
@@ -441,13 +545,20 @@ function moveHumans() {
             }
         }
         
-        // Add wall avoidance
+        // Add boundary avoidance to prevent edge-sticking
+        const edgeBuffer = TILE * 3;
+        if (h.x < edgeBuffer) dx += (edgeBuffer - h.x) * 0.1;
+        if (h.x > canvas.width - edgeBuffer) dx -= (h.x - (canvas.width - edgeBuffer)) * 0.1;
+        if (h.y < edgeBuffer) dy += (edgeBuffer - h.y) * 0.1;
+        if (h.y > canvas.height - edgeBuffer) dy -= (h.y - (canvas.height - edgeBuffer)) * 0.1;
+        
+        // Add wall and building avoidance
         const futureX = h.x + dx * 3;
         const futureY = h.y + dy * 3;
-        if (isInsideWall({x: futureX, y: h.y})) {
+        if (isInsideWall({x: futureX, y: h.y}) || isInsideBuilding({x: futureX, y: h.y})) {
             dx = -dx * 0.5 + (Math.random() - 0.5) * 2;
         }
-        if (isInsideWall({x: h.x, y: futureY})) {
+        if (isInsideWall({x: h.x, y: futureY}) || isInsideBuilding({x: h.x, y: futureY})) {
             dy = -dy * 0.5 + (Math.random() - 0.5) * 2;
         }
         
@@ -459,21 +570,21 @@ function moveHumans() {
         h.x += dx;
         h.y += dy;
         
-        // Keep within bounds
-        h.x = Math.max(TILE, Math.min(h.x, canvas.width - TILE * 2));
-        h.y = Math.max(TILE, Math.min(h.y, canvas.height - TILE * 2));
+        // Keep within bounds with buffer
+        h.x = Math.max(TILE * 2, Math.min(h.x, canvas.width - TILE * 3));
+        h.y = Math.max(TILE * 2, Math.min(h.y, canvas.height - TILE * 3));
         
-        // Better wall collision - try alternative directions if stuck
-        if (isInsideWall(h)) {
+        // Better collision detection
+        if (isInsideWall(h) || isInsideBuilding(h)) {
             h.x = prev.x;
             h.y = prev.y;
             // Try moving in a different direction
             const angle = Math.random() * Math.PI * 2;
             h.x += Math.cos(angle) * HUMAN_SPEED;
             h.y += Math.sin(angle) * HUMAN_SPEED;
-            h.x = Math.max(TILE, Math.min(h.x, canvas.width - TILE * 2));
-            h.y = Math.max(TILE, Math.min(h.y, canvas.height - TILE * 2));
-            if (isInsideWall(h)) {
+            h.x = Math.max(TILE * 2, Math.min(h.x, canvas.width - TILE * 3));
+            h.y = Math.max(TILE * 2, Math.min(h.y, canvas.height - TILE * 3));
+            if (isInsideWall(h) || isInsideBuilding(h)) {
                 h.x = prev.x;
                 h.y = prev.y;
             }
@@ -513,15 +624,36 @@ function moveSoldiers() {
             playSound(800, 0.05, 'square'); // Gunshot sound
         }
         
-        // Move towards closest zombie
+        // Move towards closest zombie with building avoidance
         const dx = Math.sign(closest.x - s.x) * SOLDIER_SPEED;
         const dy = Math.sign(closest.y - s.y) * SOLDIER_SPEED;
         const prev = { x: s.x, y: s.y };
-        s.x += dx;
-        s.y += dy;
-        s.x = Math.max(0, Math.min(s.x, canvas.width - TILE));
-        s.y = Math.max(0, Math.min(s.y, canvas.height - TILE));
-        if (isInsideWall(s)) { s.x = prev.x; s.y = prev.y; }
+        
+        // Try X movement
+        const testX = { x: s.x + dx, y: s.y };
+        if (!isInsideWall(testX) && !isInsideBuilding(testX) && testX.x >= 0 && testX.x <= canvas.width - TILE) {
+            s.x += dx;
+        }
+        
+        // Try Y movement
+        const testY = { x: s.x, y: s.y + dy };
+        if (!isInsideWall(testY) && !isInsideBuilding(testY) && testY.y >= 0 && testY.y <= canvas.height - TILE) {
+            s.y += dy;
+        }
+        
+        // If stuck, try alternative movement
+        if (s.x === prev.x && s.y === prev.y) {
+            const angle = Math.atan2(closest.y - s.y, closest.x - s.x) + (Math.random() - 0.5) * Math.PI / 4;
+            const altX = s.x + Math.cos(angle) * SOLDIER_SPEED;
+            const altY = s.y + Math.sin(angle) * SOLDIER_SPEED;
+            
+            if (!isInsideWall({x: altX, y: s.y}) && !isInsideBuilding({x: altX, y: s.y}) && altX >= 0 && altX <= canvas.width - TILE) {
+                s.x = altX;
+            }
+            if (!isInsideWall({x: s.x, y: altY}) && !isInsideBuilding({x: s.x, y: altY}) && altY >= 0 && altY <= canvas.height - TILE) {
+                s.y = altY;
+            }
+        }
     }
 }
 
@@ -536,6 +668,17 @@ function lineIntersectsWall(x1, y1, x2, y2) {
     return false;
 }
 
+function lineIntersectsBuilding(x1, y1, x2, y2) {
+    for (const building of buildings) {
+        // Check if line segment intersects with building rectangle
+        if (x1 >= building.x && x1 <= building.x + building.width && 
+            y1 >= building.y && y1 <= building.y + building.height) return true;
+        if (x2 >= building.x && x2 <= building.x + building.width && 
+            y2 >= building.y && y2 <= building.y + building.height) return true;
+    }
+    return false;
+}
+
 function moveBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
@@ -544,8 +687,9 @@ function moveBullets() {
         bullet.x += bullet.dx;
         bullet.y += bullet.dy;
         
-        // Check if bullet hits a wall
-        if (lineIntersectsWall(prevX, prevY, bullet.x, bullet.y)) {
+        // Check if bullet hits a wall or building
+        if (lineIntersectsWall(prevX, prevY, bullet.x, bullet.y) || 
+            lineIntersectsBuilding(prevX, prevY, bullet.x, bullet.y)) {
             bullets.splice(i, 1);
             continue;
         }
@@ -753,16 +897,31 @@ function checkCollisions() {
         }
     }
 
-    // check level end
-    if (humans.length === 0) {
+    // check level end - FIXED: Move this check to the end and ensure it works
+    if (humans.length === 0 && levelStartDelay === 0) {
         level++;
         achievements.levelsCompleted++;
         achievements.highestLevel = Math.max(achievements.highestLevel, level);
         checkAchievements();
         playSound(660, 0.3); // level complete sound
+        saveAchievements();
         startLevel();
     }
     if (invincibleTimer > 0) invincibleTimer--;
+}
+
+function checkBuildingCollisions() {
+    for (const z of zombies) {
+        const building = isInsideBuilding(z);
+        if (building) {
+            building.health--;
+            if (building.health <= 0) {
+                const index = buildings.indexOf(building);
+                buildings.splice(index, 1);
+                playSound(300, 0.3, 'sawtooth');
+            }
+        }
+    }
 }
 
 function drawCharacter(ent, type) {
@@ -856,6 +1015,34 @@ function drawBullet(bullet) {
     ctx.fill();
 }
 
+function drawBuilding(building) {
+    // Draw building
+    ctx.fillStyle = building.color;
+    ctx.fillRect(building.x, building.y, building.width, building.height);
+    
+    // Draw building outline
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(building.x, building.y, building.width, building.height);
+    
+    // Draw windows
+    ctx.fillStyle = '#FFD700';
+    const windowSize = 8;
+    for (let x = building.x + 10; x < building.x + building.width - 10; x += 20) {
+        for (let y = building.y + 10; y < building.y + building.height - 10; y += 20) {
+            ctx.fillRect(x, y, windowSize, windowSize);
+        }
+    }
+    
+    // Draw health bar if damaged
+    if (building.health < building.maxHealth) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(building.x, building.y - 8, building.width, 4);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(building.x, building.y - 8, building.width * (building.health / building.maxHealth), 4);
+    }
+}
+
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -877,6 +1064,11 @@ function draw() {
         ctx.moveTo(0, y);
         ctx.lineTo(canvas.width, y);
         ctx.stroke();
+    }
+    
+    // Draw buildings first (behind other entities)
+    for (const building of buildings) {
+        drawBuilding(building);
     }
     
     // Draw walls with better styling
@@ -939,6 +1131,7 @@ function gameLoop() {
     moveBosses();
     moveBullets();
     checkCollisions();
+    checkBuildingCollisions();
     draw();
     updateHud();
     requestAnimationFrame(gameLoop);
@@ -964,6 +1157,17 @@ function updateAchievementDisplay() {
 // Update achievement display on page load
 document.addEventListener('DOMContentLoaded', () => {
     updateAchievementDisplay();
+    // Start title music after first user interaction
+    const startTitleMusicOnce = () => {
+        if (!audioContext) {
+            initAudio();
+        }
+        if (audioContext && !gameRunning) {
+            startTitleMusic();
+        }
+        document.removeEventListener('click', startTitleMusicOnce);
+    };
+    document.addEventListener('click', startTitleMusicOnce);
 });
 
 // Also update when start screen is shown
@@ -974,6 +1178,7 @@ document.getElementById('go-restart-btn').addEventListener('click', () => {
 });
 
 function startGame() {
+    stopTitleMusic();
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('game-over').classList.add('hidden');
     gameRunning = true;
@@ -994,6 +1199,14 @@ function endGame() {
     }
     document.getElementById('high-score').textContent = `Highscore: ${highscore}`;
     document.getElementById('game-over').classList.remove('hidden');
+    
+    // Start title music again
+    setTimeout(() => {
+        if (audioContext) {
+            createTitleMusic();
+            startTitleMusic();
+        }
+    }, 1000);
 }
 
 // Initially show start screen
